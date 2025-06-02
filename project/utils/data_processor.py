@@ -1,50 +1,108 @@
 import json
 import pandas as pd
+from pathlib import Path
+import io # For BytesIO, though not strictly needed if UploadedFile has .read()
 
-def load_json_data(uploaded_file):
+def load_json_data(source_input):
     """
-    Loads JSON data from a Streamlit UploadedFile object, parses it,
-    and converts it into a pandas DataFrame.
+    Loads JSON data from various sources (Streamlit UploadedFile object, file path string,
+    or Path object), parses it, and converts it into a pandas DataFrame.
 
     Args:
-        uploaded_file: A Streamlit UploadedFile object.
+        source_input: A Streamlit UploadedFile object, a string representing a file path,
+                      or a pathlib.Path object.
 
     Returns:
         A pandas DataFrame containing the parsed JSON data, or an empty
         DataFrame if parsing fails or the file is None.
     """
-    if uploaded_file is None:
-        # TODO: Log that no file was uploaded
+    if source_input is None:
+        # TODO: Log that no input was provided
+        print("Warning: No data source provided to load_json_data.")
         return pd.DataFrame()
 
-    try:
-        file_content = uploaded_file.read().decode("utf-8")
-        data = json.loads(file_content)
+    raw_content = None
+    data_source_name = "Unknown" # For logging/error messages
 
-        # Assuming the JSON data is a list of records
+    try:
+        if hasattr(source_input, 'read'): # Duck typing for Streamlit UploadedFile or BytesIO
+            if hasattr(source_input, 'name'):
+                data_source_name = source_input.name
+            else:
+                data_source_name = "Uploaded Stream"
+
+            # Streamlit's UploadedFile might return bytes from read() or getvalue()
+            # Ensure we handle both potential interfaces if they differ across versions/usage
+            if hasattr(source_input, 'getvalue'):
+                raw_content_bytes = source_input.getvalue()
+            else:
+                raw_content_bytes = source_input.read()
+
+            if not isinstance(raw_content_bytes, bytes):
+                 # If it's already a string (e.g. from a mock object in tests)
+                if isinstance(raw_content_bytes, str):
+                    raw_content = raw_content_bytes
+                else:
+                    # TODO: Log this unexpected type
+                    print(f"Warning: Unexpected content type from stream-like object: {type(raw_content_bytes)}")
+                    return pd.DataFrame()
+            else:
+                 raw_content = raw_content_bytes.decode("utf-8")
+
+        elif isinstance(source_input, (str, Path)):
+            data_source_name = str(source_input)
+            file_path = Path(source_input)
+            if not file_path.exists():
+                # TODO: Log file not found
+                print(f"Error: File not found at path: {file_path}")
+                return pd.DataFrame()
+            if not file_path.is_file():
+                 # TODO: Log path is not a file
+                print(f"Error: Path is not a file: {file_path}")
+                return pd.DataFrame()
+            raw_content_bytes = file_path.read_bytes()
+            raw_content = raw_content_bytes.decode("utf-8")
+        else:
+            # TODO: Log unsupported input type
+            print(f"Error: Unsupported input type for load_json_data: {type(source_input)}")
+            return pd.DataFrame()
+
+        if not raw_content:
+            # TODO: Log empty content
+            print(f"Warning: Empty content from data source: {data_source_name}")
+            return pd.DataFrame()
+
+        data = json.loads(raw_content)
+
         if not isinstance(data, list):
-            # TODO: Log that the JSON data is not a list of records
-            # Potentially raise a custom exception here
+            # TODO: Log that JSON data is not a list of records
+            print(f"Warning: JSON data from {data_source_name} is not a list of records.")
             return pd.DataFrame()
 
         df = pd.DataFrame(data)
 
-        # Basic validation for expected columns
+        # Column validation can remain, or be moved to a separate validation function if preferred
         expected_columns = ["head", "head_type", "relation", "tail", "tail_type"]
         if not all(col in df.columns for col in expected_columns):
-            # TODO: Log that the DataFrame is missing expected columns
-            # Potentially raise a custom exception here
-            # Returning an empty DataFrame for now, or could return df and let caller handle
-            return pd.DataFrame()
+            # TODO: Log missing columns
+            print(f"Warning: DataFrame from {data_source_name} is missing one or more expected columns: {expected_columns}.")
+            # Depending on strictness, might return df or empty df. For now, returning df.
+            # Consider how critical these columns are for downstream processing.
+            # If they are essential, returning pd.DataFrame() might be better.
+            pass # Allow partial data for now, validate_data can catch this more formally
 
         return df
-    except json.JSONDecodeError:
+
+    except json.JSONDecodeError as e:
         # TODO: Log JSON parsing error
-        # Consider raising a custom exception for better error handling upstream
+        print(f"Error parsing JSON from {data_source_name}: {e}")
+        return pd.DataFrame()
+    except FileNotFoundError: # Should be caught by Path.exists() but as a safeguard
+        print(f"Error: File not found (safeguard) for path: {data_source_name}")
         return pd.DataFrame()
     except Exception as e:
-        # TODO: Log other potential errors during file processing
-        # Consider raising a custom exception
+        # TODO: Log other potential errors
+        print(f"An unexpected error occurred while loading/processing data from {data_source_name}: {e}")
         return pd.DataFrame()
 
 

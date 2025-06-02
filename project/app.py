@@ -41,17 +41,33 @@ def main():
     uploaded_file = st.sidebar.file_uploader(
         "Upload JSON data",
         type=["json"],
-        help="Upload a JSON file containing relationship data (e.g., head, tail, relation)."
+        help="Upload a JSON file containing relationship data. If no file is uploaded, a sample graph will be shown."
     )
 
-    if uploaded_file:
-        st.sidebar.info(f"File '{uploaded_file.name}' uploaded.")
+    data_source = None
+    source_name = ""
 
-        # 1. Load Data
-        df = load_json_data(uploaded_file)
+    if uploaded_file is not None:
+        data_source = uploaded_file
+        source_name = uploaded_file.name
+        st.sidebar.info(f"Using uploaded file: '{source_name}'")
+    else:
+        sample_data_path = Path("project/assets/sample_data.json") # Adjusted path
+        if sample_data_path.exists():
+            st.sidebar.info("No file uploaded. Displaying sample knowledge graph.")
+            data_source = str(sample_data_path) # Pass path to load_json_data
+            source_name = "Sample Data"
+        else:
+            st.sidebar.warning("Sample data file not found (expected at project/assets/sample_data.json).")
+            st.info("Please upload a JSON file to visualize the knowledge graph.")
+            return # Exit if no data source is available
+
+    # 1. Load Data
+    if data_source:
+        df = load_json_data(data_source)
 
         if not df.empty:
-            st.sidebar.success("Data loaded successfully from JSON.")
+            st.sidebar.success(f"Data loaded successfully from '{source_name}'.")
 
             # 2. Validate Data
             if validate_data(df):
@@ -207,18 +223,20 @@ def main():
                     st.dataframe(df)
         else:
             st.sidebar.error("Failed to load or parse JSON data. The file might be empty, malformed, or not a valid JSON list of records.")
-            # Attempt to read and display raw content if possible, for debugging
-            uploaded_file.seek(0) # Reset file pointer
-            try:
-                raw_content = uploaded_file.read().decode()
-                if st.checkbox("Show raw file content for debugging (first 1000 chars)"):
-                    st.text_area("Raw File Content:", raw_content[:1000], height=200)
-            except Exception as e:
-                st.sidebar.warning(f"Could not read raw file content: {e}")
+            # Attempt to read and display raw content if it was an uploaded file and loading failed
+            if uploaded_file is not None and df.empty: # only if it was an actual uploaded file
+                uploaded_file.seek(0)
+                try:
+                    raw_content = uploaded_file.read().decode()
+                    if st.checkbox("Show raw file content for debugging (first 1000 chars)"):
+                        st.text_area("Raw File Content:", raw_content[:1000], height=200)
+                except Exception as e:
+                    st.sidebar.warning(f"Could not read raw file content: {e}")
+            elif df.empty and source_name == "Sample Data":
+                 st.sidebar.error(f"Failed to load or parse the sample JSON data from '{str(sample_data_path)}'.")
 
-
-    else:
-        st.info("Please upload a JSON file using the sidebar to visualize the knowledge graph.")
+    # This else block for 'if data_source:' is implicitly handled by the return if sample_data.json not found
+    # and no file is uploaded. If a file IS uploaded but load_json_data returns empty, it's handled above.
 
 if __name__ == "__main__":
     main()
