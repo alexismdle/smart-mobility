@@ -1,0 +1,79 @@
+[
+  {
+    "head": "Alice",
+    "head_type": "person",
+    "relation": "works_at",
+    "tail": "DataCorp",
+    "tail_type": "organization"
+  },
+  {
+    "head": "Bob",
+    "head_type": "person",
+    "relation": "works_at",
+    "tail": "DataCorp",
+    "tail_type": "organization"
+  },
+  {
+    "head": "Alice",
+    "head_type": "person",
+    "relation": "friends_with",
+    "tail": "Bob",
+    "tail_type": "person"
+  },
+  {
+    "head": "DataCorp",
+    "head_type": "organization",
+    "relation": "located_in",
+    "tail": "New York",
+    "tail_type": "location"
+  },
+  {
+    "head": "Charlie",
+    "head_type": "person",
+    "relation": "friends_with",
+    "tail": "Alice",
+    "tail_type": "person"
+  },
+  {
+    "head": "David",
+    "head_type": "person",
+    "relation": "manages",
+    "tail": "Alice",
+    "tail_type": "person"
+  },
+  {
+    "head": "Eve",
+    "head_type": "person",
+    "relation": "works_at",
+    "tail": "AlphaTech",
+    "tail_type": "organization"
+  },
+  {
+    "head": "AlphaTech",
+    "head_type": "organization",
+    "relation": "competes_with",
+    "tail": "DataCorp",
+    "tail_type": "organization"
+  },
+  {
+    "head": "New York",
+    "head_type": "location",
+    "relation": "country",
+    "tail": "USA",
+    "tail_type": "country"
+  },
+  {
+    "head": "Project X",
+    "head_type": "project",
+    "relation": "led_by",
+    "tail": "Alice",
+    "tail_type": "person"
+  },
+  {
+    "head": "Project Y",
+    "head_type": "project",
+    "relation": "developed_by",
+    "tail": "DataCorp",
+    "tail_type": "organization"
+  }
+]
