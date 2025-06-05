@@ -75,22 +75,68 @@ def load_json_data(source_input):
             
         data = json.loads(raw_content)
 
-        if not isinstance(data, list):
-            # TODO: Log that JSON data is not a list of records
-            print(f"Warning: JSON data from {data_source_name} is not a list of records.")
+        # Corrected check: The root of the JSON should be a dictionary
+        if not isinstance(data, dict):
+            # TODO: Log that JSON data is not a dictionary (object)
+            print(f"Warning: JSON data from {data_source_name} is not an object as expected.")
             return pd.DataFrame()
 
-        df = pd.DataFrame(data)
+        # Check for 'nodes' and 'edges' keys, and ensure they are lists
+        if not isinstance(data.get('nodes'), list) or not isinstance(data.get('edges'), list):
+            print(f"Warning: JSON data from {data_source_name} does not contain 'nodes' and 'edges' as lists.")
+            return pd.DataFrame()
 
-        # Column validation can remain, or be moved to a separate validation function if preferred
+        nodes_data = data['nodes']
+        edges_data = data['edges']
+
+        node_labels = {node['id']: node['label'] for node in nodes_data if 'id' in node and 'label' in node}
+
+        processed_edges = []
+        for edge in edges_data:
+            head_id = edge.get('from')
+            tail_id = edge.get('to')
+            relation = edge.get('label')
+
+            if not all([head_id, tail_id, relation]):
+                # TODO: Log or print warning about skipping malformed edge
+                print(f"Warning: Skipping edge due to missing 'from', 'to', or 'label': {edge}")
+                continue
+
+            head_label = node_labels.get(head_id)
+            tail_label = node_labels.get(tail_id)
+
+            if not head_label or not tail_label:
+                # TODO: Log or print warning about skipping edge due to missing node label
+                print(f"Warning: Skipping edge due to missing label for head_id '{head_id}' or tail_id '{tail_id}'.")
+                continue
+
+            # Derive type from label (e.g., "agency.txt" -> "agency")
+            head_type = head_label.split('.')[0] if '.' in head_label else head_label
+            tail_type = tail_label.split('.')[0] if '.' in tail_label else tail_label
+
+            processed_edges.append({
+                "head": head_id, # Storing original ID as 'head'
+                "head_type": head_type,
+                "relation": relation,
+                "tail": tail_id, # Storing original ID as 'tail'
+                "tail_type": tail_type
+            })
+
+        if not processed_edges:
+            print(f"Warning: No valid edges could be processed from {data_source_name}.")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(processed_edges)
+
+        # The following validation of column names is still relevant.
+        # However, the creation logic above ensures these columns exist if processed_edges is not empty.
+        # This check is more of a safeguard if the logic were to change.
         expected_columns = ["head", "head_type", "relation", "tail", "tail_type"]
         if not all(col in df.columns for col in expected_columns):
-            # TODO: Log missing columns
-            print(f"Warning: DataFrame from {data_source_name} is missing one or more expected columns: {expected_columns}.")
-            # Depending on strictness, might return df or empty df. For now, returning df.
-            # Consider how critical these columns are for downstream processing.
-            # If they are essential, returning pd.DataFrame() might be better.
-            pass # Allow partial data for now, validate_data can catch this more formally
+            # This case should ideally not be reached if processed_edges has data.
+            print(f"Warning: DataFrame constructed from {data_source_name} is missing one or more expected columns: {expected_columns}.")
+            # If this happens, it implies an issue with the edge processing logic.
+            return pd.DataFrame() # Return empty if structure is not as expected.
 
         return df
 
