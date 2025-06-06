@@ -1,0 +1,10 @@
+
+__pycache__/
+lib/
+config/
+.venv/
+.mypy_cache/
+*.pyc
+*.pyo
+*.pyd
+.python-version
