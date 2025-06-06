@@ -2,69 +2,84 @@ import networkx as nx
 import pandas as pd
 
 
-def create_networkx_graph(df: pd.DataFrame):
+def create_networkx_graph(edges_df: pd.DataFrame, node_info: dict):
     """
-    Creates a NetworkX MultiDiGraph from a pandas DataFrame.
+    Creates a NetworkX MultiDiGraph from a pandas DataFrame of edges
+    and a dictionary of node information.
 
-    The DataFrame is expected to have columns: 'head', 'head_type',
-    'relation', 'tail', 'tail_type'.
+    The edges_df is expected to have columns: 'head', 'relation', 'tail'.
+    'head_type' and 'tail_type' in edges_df are optional if node_info is comprehensive.
+    The node_info dictionary maps node IDs to their type and attributes:
+    {node_id: {'type': 'some_type', 'attributes': [...]}}
 
     Args:
-        df: A pandas DataFrame containing the graph data.
+        edges_df: A pandas DataFrame containing the graph edge data.
+        node_info: A dictionary containing node types and attributes.
 
     Returns:
-        A networkx.MultiDiGraph object. Returns an empty graph if the
-        input DataFrame is empty or None.
+        A networkx.MultiDiGraph object. Returns an empty graph if
+        there's no node or edge data.
     """
-    if df is None or df.empty:
-        # TODO: Log or print a message about empty input DataFrame
-        return nx.MultiDiGraph()
-
     graph = nx.MultiDiGraph()
 
-    # Expected columns - ensure they exist, though prior validation should catch this
-    required_cols = ['head', 'head_type', 'relation', 'tail', 'tail_type']
-    if not all(col in df.columns for col in required_cols):
-        # TODO: Log a warning or raise an error if essential columns are missing
-        # This indicates an issue upstream, as data validation should precede this.
-        # For now, returning an empty graph to prevent runtime errors.
-        print(f"Warning: Input DataFrame is missing one or more required columns: {required_cols}")
-        return nx.MultiDiGraph()
+    # Add all nodes from node_info first
+    if node_info:
+        for node_id, data in node_info.items():
+            graph.add_node(node_id,
+                           type=data.get('type', 'unknown'),  # Use .get for safety
+                           detailed_attributes=data.get('attributes', [])) # Use .get for safety
 
-    for _, row in df.iterrows():
+    # If there are no edges, we can return the graph with only nodes (if any)
+    if edges_df is None or edges_df.empty:
+        if not node_info: # No nodes and no edges
+             # TODO: Log or print a message about empty input
+            print("Info: No node or edge data provided to create_networkx_graph.")
+        else: # Nodes exist, but no edges
+            print("Info: No edges provided, graph will contain only nodes.")
+        # Calculate degree for nodes even if there are no edges (all degrees will be 0)
+        for node_id in list(graph.nodes()):
+            degree = graph.degree(node_id)
+            graph.nodes[node_id]['degree'] = degree
+            graph.nodes[node_id]['connection_count'] = degree
+        return graph
+
+    # Process edges
+    # Expected columns for edges_df - 'head_type' and 'tail_type' are less critical now
+    # if nodes are added from node_info, but 'head', 'relation', 'tail' are essential.
+    required_edge_cols = ['head', 'relation', 'tail']
+    if not all(col in edges_df.columns for col in required_edge_cols):
+        print(f"Warning: Edges DataFrame is missing one or more required columns: {required_edge_cols}. Cannot add edges.")
+        # Still return the graph, it might contain nodes from node_info
+        return graph
+
+    for _, row in edges_df.iterrows():
         head = row['head']
-        head_type = row['head_type']
         relation = row['relation']
         tail = row['tail']
-        tail_type = row['tail_type']
 
-        # Add nodes with their types. NetworkX handles existing nodes gracefully.
-        # If node exists, new attributes might overwrite or be ignored based on NX version/behavior.
-        # It's generally fine for 'type' if consistent.
+        # Ensure head and tail nodes exist in the graph from node_info.
+        # If not, they might be new nodes mentioned only in edges or node_info was incomplete.
+        # NetworkX add_edge will add nodes if they don't exist, but without type/attributes from node_info.
+        # It's better if node_info is the source of truth for all nodes.
+        # For robustness, we can add them here if missing, using types from df if available.
         if head not in graph:
-            graph.add_node(head, type=head_type)
-        else:
-            # Optionally update type if it was different or not set,
-            # or ensure consistency. For now, assume first encountered type is used.
-            # If type can vary, this might need more sophisticated handling.
-            if 'type' not in graph.nodes[head] or graph.nodes[head].get('type') == "Unknown":
-                 graph.nodes[head]['type'] = head_type
-
+            head_type = row.get('head_type', 'unknown') # Fallback type
+            graph.add_node(head, type=head_type, detailed_attributes=[])
+            print(f"Warning: Head node '{head}' from edges was not in node_info. Added with type '{head_type}'.")
 
         if tail not in graph:
-            graph.add_node(tail, type=tail_type)
-        else:
-            if 'type' not in graph.nodes[tail] or graph.nodes[tail].get('type') == "Unknown":
-                graph.nodes[tail]['type'] = tail_type
+            tail_type = row.get('tail_type', 'unknown') # Fallback type
+            graph.add_node(tail, type=tail_type, detailed_attributes=[])
+            print(f"Warning: Tail node '{tail}' from edges was not in node_info. Added with type '{tail_type}'.")
 
-        # Add a directed edge with the relation type as an attribute
         graph.add_edge(head, tail, relation=relation)
 
-    # Calculate and store degree for each node
-    for node_id in list(graph.nodes()): # Iterate over a copy of node list if modifying attributes
+    # Calculate and store degree for each node (accounts for all nodes and edges)
+    for node_id in list(graph.nodes()):
         degree = graph.degree(node_id)
+        # Ensure 'degree' and 'connection_count' are updated or set for all nodes
         graph.nodes[node_id]['degree'] = degree
-        graph.nodes[node_id]['connection_count'] = degree # Alias for user-friendliness
+        graph.nodes[node_id]['connection_count'] = degree
 
     return graph
 
@@ -100,62 +115,18 @@ def build_pyvis_graph(nx_graph: nx.MultiDiGraph, settings: dict = None):
 
     if nx_graph is None or nx_graph.number_of_nodes() == 0:
         pyvis_empty_graph = Network(height="750px", width="100%", directed=True, notebook=False)
-        # Apply physics options even to an empty graph if they are in settings
-        if settings.get('physics_options'):
-            pyvis_empty_graph.set_options(settings['physics_options'])
+        # Complex physics settings removed for empty graph
         return pyvis_empty_graph
 
     pyvis_graph = Network(height="750px", width="100%", directed=True, notebook=False)
 
-    # Apply physics options from settings
-    # Prioritize the JSON string if available and valid, as constructed by app.py
-    physics_json_string = settings.get('pyvis_physics_options_json_string')
-    physics_dict = settings.get('pyvis_physics_options_dict')
-    import json  # Ensure json is imported
-
-    applied_physics = False
-    if physics_json_string:
-        try:
-            # Validate if it's proper JSON before passing
-            json.loads(physics_json_string) # This will raise error if not valid JSON
-            pyvis_graph.set_options(physics_json_string)
-            applied_physics = True
-        except json.JSONDecodeError:
-            # This error should ideally be caught in app.py or logged
-            # For now, if it occurs, we can try to fall back to the dict.
-            # In a Streamlit context, st.error might not be ideal here if this is a library function.
-            # Consider logging instead.
-            print("Error: Invalid JSON in physics_options_json_string. Trying dict fallback.") # Changed to print
-            # st.error("Error: Invalid JSON in physics options string from settings.") # Avoid st call here
-
-    if not applied_physics and isinstance(physics_dict, dict) and physics_dict:
-        # Fallback to dict if string wasn't applied and dict is valid
-        # Pyvis Network.set_options can also take a dictionary directly,
-        # but it needs to be structured correctly (e.g. options.physics = physics_dict)
-        # The most straightforward way if physics_dict is already structured like vis.js options:
-        # pyvis_graph.options.physics = physics_dict
-        # However, set_options expects a JSON string. So, if we have a dict, convert it.
-        try:
-            json_string_from_dict = json.dumps({"physics": physics_dict}) # Wrap it in "physics" key
-            pyvis_graph.set_options(json_string_from_dict)
-            applied_physics = True
-        except TypeError:
-            print("Error: Could not serialize physics_options_dict to JSON.")
-            # st.error("Error: Could not serialize physics_options_dict to JSON.")
-
-
-    if not applied_physics:
-        # Fallback to very basic default if nothing good was passed
-        # This ensures the graph at least tries to render with some physics
-        default_fallback_physics_json = APP_SETTINGS.get('pyvis_physics_options_json_string', '{}')
-        try:
-            json.loads(default_fallback_physics_json)
-            pyvis_graph.set_options(default_fallback_physics_json)
-        except json.JSONDecodeError:
-             print("Error: Default JSON string from APP_SETTINGS is also invalid.")
-             # As a last resort, enable basic physics if nothing else worked
-             pyvis_graph.options.physics.enabled = True
-
+    # Complex physics configuration has been removed.
+    # PyVis will use its default physics settings.
+    # If a specific simple layout is desired in the future, it can be added here, e.g.:
+    # pyvis_graph.force_atlas_2based(gravity=-50, central_gravity=0.01, spring_length=200, spring_strength=0.08, damping=0.4, overlap=0)
+    # Or simply ensure physics are enabled if PyVis defaults are not sufficient:
+    # pyvis_graph.options.physics.enabled = True
+    # For now, relying on PyVis defaults which are generally good.
 
     # Populate PyVis graph from NetworkX graph
     # PyVis's from_nx attempts to carry over attributes.

@@ -1,17 +1,110 @@
 {
   "nodes": [
-    {"id": "Agency", "label": "agency.txt"},
-    {"id": "Route", "label": "routes.txt"},
-    {"id": "Trip", "label": "trips.txt"},
-    {"id": "Stop", "label": "stops.txt"},
-    {"id": "StopTime", "label": "stop_times.txt"},
-    {"id": "Calendar", "label": "calendar.txt"}
+    {
+      "id": "Agency",
+      "label": "Agency",
+      "source_file": "agency.txt",
+      "attributes": [
+        { "name": "agency_id", "type": "string", "description": "Identifiant de l'agence", "required": false, "cardinality": "0..1" },
+        { "name": "agency_name", "type": "string", "description": "Nom de l'agence", "required": true, "cardinality": "1" },
+        { "name": "agency_url", "type": "url", "description": "Site web de l'agence", "required": true, "cardinality": "1" },
+        { "name": "agency_timezone", "type": "string", "description": "Fuseau horaire", "required": true, "cardinality": "1" },
+        { "name": "agency_lang", "type": "lang", "description": "Langue principale", "required": false, "cardinality": "0..1" },
+        { "name": "agency_phone", "type": "string", "description": "Numéro de téléphone", "required": false, "cardinality": "0..1" }
+      ]
+    },
+    {
+      "id": "Stop",
+      "label": "Stop",
+      "source_file": "stops.txt",
+      "attributes": [
+        { "name": "stop_id", "type": "string", "description": "Identifiant unique du point d'arrêt", "required": true, "cardinality": "1" },
+        { "name": "stop_name", "type": "string", "description": "Nom affiché du point d'arrêt", "required": true, "cardinality": "1" },
+        { "name": "stop_lat", "type": "float", "description": "Latitude du point d'arrêt", "required": true, "cardinality": "1" },
+        { "name": "stop_lon", "type": "float", "description": "Longitude du point d'arrêt", "required": true, "cardinality": "1" },
+        { "name": "stop_desc", "type": "string", "description": "Description optionnelle", "required": false, "cardinality": "0..1" },
+        { "name": "location_type", "type": "enum:int", "description": "Type de lieu", "required": false, "cardinality": "0..1", "enum": {
+          "0": "Arrêt classique",
+          "1": "Station",
+          "2": "Entrée",
+          "3": "Sortie",
+          "4": "Quai",
+          "5": "Zone d'embarquement"
+        }},
+        { "name": "parent_station", "type": "ref", "ref": "Stop", "description": "Station parente", "required": false, "cardinality": "0..1" }
+      ]
+    },
+    {
+      "id": "Route",
+      "label": "Route",
+      "source_file": "routes.txt",
+      "attributes": [
+        { "name": "route_id", "type": "string", "description": "Identifiant de la ligne", "required": true, "cardinality": "1" },
+        { "name": "agency_id", "type": "ref", "ref": "Agency", "description": "Agence associée", "required": false, "cardinality": "0..1" },
+        { "name": "route_short_name", "type": "string", "description": "Nom court de la ligne", "required": true, "cardinality": "1" },
+        { "name": "route_long_name", "type": "string", "description": "Nom long de la ligne", "required": true, "cardinality": "1" },
+        { "name": "route_type", "type": "enum:int", "description": "Type de transport", "required": true, "cardinality": "1", "enum": {
+          "0": "Tram",
+          "1": "Métro",
+          "2": "Train",
+          "3": "Bus",
+          "4": "Ferry",
+          "5": "Téléphérique",
+          "6": "Funiculaire"
+        }}
+      ]
+    },
+    {
+      "id": "Trip",
+      "label": "Trip",
+      "source_file": "trips.txt",
+      "attributes": [
+        { "name": "trip_id", "type": "string", "description": "Identifiant du trajet", "required": true, "cardinality": "1" },
+        { "name": "route_id", "type": "ref", "ref": "Route", "description": "Ligne associée", "required": true, "cardinality": "1" },
+        { "name": "service_id", "type": "ref", "ref": "Calendar", "description": "Service associé (calendrier)", "required": true, "cardinality": "1" },
+        { "name": "trip_headsign", "type": "string", "description": "Destination affichée", "required": false, "cardinality": "0..1" },
+        { "name": "direction_id", "type": "enum:int", "description": "Direction du trajet", "required": false, "cardinality": "0..1", "enum": {
+          "0": "Aller",
+          "1": "Retour"
+        }}
+      ]
+    },
+    {
+      "id": "StopTime",
+      "label": "StopTime",
+      "source_file": "stop_times.txt",
+      "attributes": [
+        { "name": "trip_id", "type": "ref", "ref": "Trip", "description": "Trajet concerné", "required": true, "cardinality": "1" },
+        { "name": "arrival_time", "type": "time", "description": "Heure d'arrivée", "required": false, "cardinality": "0..1" },
+        { "name": "departure_time", "type": "time", "description": "Heure de départ", "required": false, "cardinality": "0..1" },
+        { "name": "stop_id", "type": "ref", "ref": "Stop", "description": "Point d'arrêt concerné", "required": true, "cardinality": "1" },
+        { "name": "stop_sequence", "type": "int", "description": "Ordre d'arrêt", "required": true, "cardinality": "1" }
+      ]
+    },
+    {
+      "id": "Calendar",
+      "label": "Calendar",
+      "source_file": "calendar.txt",
+      "attributes": [
+        { "name": "service_id", "type": "string", "description": "Identifiant du service", "required": true, "cardinality": "1" },
+        { "name": "monday", "type": "int", "description": "Actif le lundi", "required": true, "cardinality": "1" },
+        { "name": "tuesday", "type": "int", "description": "Actif le mardi", "required": true, "cardinality": "1" },
+        { "name": "wednesday", "type": "int", "description": "Actif le mercredi", "required": true, "cardinality": "1" },
+        { "name": "thursday", "type": "int", "description": "Actif le jeudi", "required": true, "cardinality": "1" },
+        { "name": "friday", "type": "int", "description": "Actif le vendredi", "required": true, "cardinality": "1" },
+        { "name": "saturday", "type": "int", "description": "Actif le samedi", "required": true, "cardinality": "1" },
+        { "name": "sunday", "type": "int", "description": "Actif le dimanche", "required": true, "cardinality": "1" },
+        { "name": "start_date", "type": "date", "description": "Date de début", "required": true, "cardinality": "1" },
+        { "name": "end_date", "type": "date", "description": "Date de fin", "required": true, "cardinality": "1" }
+      ]
+    }
   ],
   "edges": [
-    {"from": "Route", "to": "Agency", "label": "agency_id"},
-    {"from": "Trip", "to": "Route", "label": "route_id"},
-    {"from": "StopTime", "to": "Trip", "label": "trip_id"},
-    {"from": "StopTime", "to": "Stop", "label": "stop_id"},
-    {"from": "Trip", "to": "Calendar", "label": "service_id"}
+    { "from": "Route", "to": "Agency", "label": "agency_id" },
+    { "from": "Trip", "to": "Route", "label": "route_id" },
+    { "from": "Trip", "to": "Calendar", "label": "service_id" },
+    { "from": "StopTime", "to": "Trip", "label": "trip_id" },
+    { "from": "StopTime", "to": "Stop", "label": "stop_id" },
+    { "from": "Stop", "to": "Stop", "label": "parent_station" }
   ]
 }

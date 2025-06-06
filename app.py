@@ -9,6 +9,7 @@ import json  # For creating JSON string for PyVis
 import tempfile
 from pathlib import Path
 
+import pandas as pd # Import pandas
 import streamlit as st
 
 from config.settings import APP_SETTINGS  # Import APP_SETTINGS
@@ -34,78 +35,92 @@ def main():
     Main function to run the Streamlit application.
     Handles file uploading, data processing, graph generation, and visualization.
     """
-    # --- Sidebar for File Upload and Controls ---
+    # --- Sidebar for Controls ---
     st.sidebar.header("Controls")
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload JSON data",
-        type=["json"],
-        help="Upload a JSON file containing relationship data. If no file is uploaded, a sample graph will be shown."
-    )
 
-    data_source = None
-    source_name = ""
+    # Direct loading of assets/sample_data.json
+    sample_data_path = Path("assets/sample_data.json")
+    source_name = "Sample Data (assets/sample_data.json)"
 
-    if uploaded_file is not None:
-        data_source = uploaded_file
-        source_name = uploaded_file.name
-        st.sidebar.info(f"Using uploaded file: '{source_name}'")
-    else:
-        sample_data_path = Path("assets/sample_data.json") # Adjusted path
-        if sample_data_path.exists():
-            st.sidebar.info("No file uploaded. Displaying sample knowledge graph.")
-            data_source = str(sample_data_path) # Pass path to load_json_data
-            source_name = "Sample Data"
-        else:
-            st.sidebar.warning("Sample data file not found (expected at assets/sample_data.json).")
-            st.info("Please upload a JSON file to visualize the knowledge graph.")
-            return # Exit if no data source is available
+    if not sample_data_path.exists():
+        st.sidebar.error(f"Critical: Sample data file not found at {sample_data_path}.")
+        st.error(f"The application expects the sample data file at '{sample_data_path}'. Please ensure it exists.")
+        return # Exit if the hardcoded data source is not available
+
+    st.sidebar.info(f"Displaying graph from: {source_name}")
+    data_source = str(sample_data_path)
 
     # 1. Load Data
-    if data_source:
-        df = load_json_data(data_source)
+    edges_df, node_info_map = load_json_data(data_source)
 
-        if not df.empty:
-            st.sidebar.success(f"Data loaded successfully from '{source_name}'.")
+    # Check if edges_df is a DataFrame and node_info_map is a dict, basic check for successful load
+    if not isinstance(edges_df, pd.DataFrame) or not isinstance(node_info_map, dict):
+        st.sidebar.error("Failed to load data correctly. Expected a DataFrame and a dictionary from load_json_data.")
+        return
 
-            # 2. Validate Data
-            if validate_data(df):
-                st.sidebar.success("Data validation successful!")
+    # Proceed if we have at least nodes or edges
+    if not edges_df.empty or node_info_map:
+        st.sidebar.success(f"Data loaded. Nodes: {len(node_info_map)}, Edges: {len(edges_df)}")
 
-                # 3. Clean Data
-                cleaned_df = clean_data(df)
-                if cleaned_df.empty and not df.empty: # Check if cleaning resulted in empty DF from non-empty
-                    st.sidebar.warning("Data became empty after cleaning. Check for essential missing values.")
-                    st.dataframe(df) # Show original df for context
-                    return
-                st.sidebar.write(f"Data cleaned. Rows remaining: {len(cleaned_df)}")
-
-                # 4. Normalize Entities
-                normalized_df = normalize_entities(cleaned_df)
-                st.sidebar.write(f"Entities normalized. Total relationships: {len(normalized_df)}")
-
-                if normalized_df.empty and not cleaned_df.empty : # Check if normalization resulted in empty
-                     st.sidebar.warning("Data became empty after normalization.")
-                     st.dataframe(cleaned_df) # Show cleaned df for context
-                     return
+        # 2. Validate Data (validates structure of edges_df)
+        # If there are no edges, validation might not be meaningful or could be skipped.
+            # However, validate_data handles empty df gracefully.
+        if validate_data(edges_df):
+            if not edges_df.empty: # Only show success if there were edges to validate
+                st.sidebar.success("Edge data validation successful!")
+            elif not node_info_map and edges_df.empty: # No nodes and no edges
+                st.sidebar.warning("No nodes or edges found in the data.")
+                # This case might be an actual empty valid JSON, so we might not want to return.
+                # The graph building will handle empty graph. Let's let it proceed.
+                pass # Allow to proceed to show an empty graph or graph with only nodes
 
 
-                # Display processed data snippet in sidebar (optional)
-                if st.sidebar.checkbox("Show processed data snippet"):
-                    st.sidebar.dataframe(normalized_df.head())
+            # 3. Clean Data (cleans edges_df)
+            cleaned_df = clean_data(edges_df)
+            if cleaned_df.empty and not edges_df.empty: # Check if cleaning resulted in empty DF from non-empty
+                st.sidebar.warning("Edge data became empty after cleaning. Check for essential missing values.")
+                st.dataframe(edges_df) # Show original edges_df for context
+                return
+            if not edges_df.empty: # Only report on cleaning if there were edges
+                st.sidebar.write(f"Edge data cleaned. Rows remaining: {len(cleaned_df)}")
 
-                # 5. Create NetworkX Graph
-                nx_graph = create_networkx_graph(normalized_df)
-                if nx_graph.number_of_nodes() == 0 and not normalized_df.empty:
-                    st.sidebar.error("Failed to create graph: No nodes were generated from the data.")
-                    st.dataframe(normalized_df)
-                    return
+            # 4. Normalize Entities (normalizes edges_df)
+            normalized_df = normalize_entities(cleaned_df)
+            if not edges_df.empty: # Only report on normalization if there were edges
+                st.sidebar.write(f"Entities in edge data normalized. Total relationships: {len(normalized_df)}")
 
-                st.sidebar.success(
-                    f"NetworkX graph created: {nx_graph.number_of_nodes()} nodes, "
-                    f"{nx_graph.number_of_edges()} edges."
-                )
+            if normalized_df.empty and not cleaned_df.empty : # Check if normalization resulted in empty
+                 st.sidebar.warning("Edge data became empty after normalization.")
+                 st.dataframe(cleaned_df) # Show cleaned df for context
+                 return
 
-                # --- UI for Node Sizing ---
+
+            # Display processed data snippet in sidebar (optional)
+            if st.sidebar.checkbox("Show processed edge data snippet"):
+                st.sidebar.dataframe(normalized_df.head())
+
+            # 5. Create NetworkX Graph
+            # Pass both the DataFrame of edges and the map of node information
+            nx_graph = create_networkx_graph(normalized_df, node_info_map)
+
+            # Check graph generation success based on nodes from node_info_map or edges
+            # It's possible to have a graph with only nodes if node_info_map is not empty but normalized_df is
+            if nx_graph.number_of_nodes() == 0 and not node_info_map and (normalized_df is None or normalized_df.empty):
+                st.sidebar.error("Failed to create graph: No nodes or edges were generated from the data.")
+                if normalized_df is not None and not normalized_df.empty: st.dataframe(normalized_df)
+                if not node_info_map: st.sidebar.write("Node info map is also empty.")
+                return
+            elif nx_graph.number_of_nodes() == 0 and node_info_map: # Nodes existed, but graph is empty (problem)
+                st.sidebar.error("Failed to create graph: Graph has no nodes, but node data was present.")
+                return
+
+
+            st.sidebar.success(
+                f"NetworkX graph created: {nx_graph.number_of_nodes()} nodes, "
+                f"{nx_graph.number_of_edges()} edges."
+            )
+
+            # --- UI for Node Sizing ---
                 st.sidebar.subheader("Graph Styling")
                 sizing_options = ["default", "connection_count"] 
                 # Future: Add other metrics like centrality once calculated e.g. "degree_centrality"
@@ -214,27 +229,21 @@ def main():
                 st.sidebar.error("Data validation failed. Please check the JSON structure and required fields.")
                 st.warning(
                     "The uploaded JSON data does not meet the required format. "
-                    "Ensure it's a list of records with 'head', 'relation', and 'tail' fields. "
-                    "Other fields like 'head_type' and 'tail_type' are recommended."
-                )
-                if st.checkbox("Show raw data for debugging"):
-                    st.dataframe(df)
-        else:
-            st.sidebar.error("Failed to load or parse JSON data. The file might be empty, malformed, or not a valid JSON list of records.")
-            # Attempt to read and display raw content if it was an uploaded file and loading failed
-            if uploaded_file is not None and df.empty: # only if it was an actual uploaded file
-                uploaded_file.seek(0) 
-                try:
-                    raw_content = uploaded_file.read().decode()
-                    if st.checkbox("Show raw file content for debugging (first 1000 chars)"):
-                        st.text_area("Raw File Content:", raw_content[:1000], height=200)
-                except Exception as e:
-                    st.sidebar.warning(f"Could not read raw file content: {e}")
-            elif df.empty and source_name == "Sample Data":
-                 st.sidebar.error(f"Failed to load or parse the sample JSON data from '{str(sample_data_path)}'.")
+                "Ensure the JSON has 'nodes' and 'edges' arrays. Nodes need 'id', 'source_file', 'attributes'. Edges need 'from', 'to', 'label'."
+            )
+            # Show edges_df if it's not None and has data, for debugging structure issues
+            if edges_df is not None and not edges_df.empty and st.sidebar.checkbox("Show edge data for debugging"):
+                st.dataframe(edges_df)
+            # Show node_info_map if it's not None and has data
+            if node_info_map is not None and node_info_map and st.sidebar.checkbox("Show node info map for debugging"):
+                st.json(node_info_map) # Display node_info_map as JSON
+    else: # This means both edges_df is empty AND node_info_map is empty after loading
+        st.sidebar.error(f"Failed to load data from '{source_name}': No nodes or edges were found.")
+        # No need to attempt to show raw content as it's a fixed file path.
+        # The error from load_json_data (if any) would have printed to console.
 
-    # This else block for 'if data_source:' is implicitly handled by the return if sample_data.json not found
-    # and no file is uploaded. If a file IS uploaded but load_json_data returns empty, it's handled above.
+# This else block for 'if data_source:' is implicitly handled by the return if sample_data.json not found
+# and no file is uploaded. If a file IS uploaded but load_json_data returns empty, it's handled above.
 
 if __name__ == "__main__":
     main()
