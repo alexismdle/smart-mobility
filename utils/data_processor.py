@@ -14,13 +14,18 @@ def load_json_data(source_input):
                       or a pathlib.Path object.
 
     Returns:
-        A pandas DataFrame containing the parsed JSON data, or an empty
-        DataFrame if parsing fails or the file is None.
+        A tuple containing:
+            - A pandas DataFrame (edges_df) with graph edge data.
+            - A dictionary (node_info_map) mapping node IDs to their type and attributes.
+        Returns (pd.DataFrame(), {}) if parsing fails, the file is None, or no data.
     """
+    empty_df = pd.DataFrame(columns=["head", "head_type", "relation", "tail", "tail_type"])
+    empty_node_map = {}
+
     if source_input is None:
         # TODO: Log that no input was provided
         print("Warning: No data source provided to load_json_data.")
-        return pd.DataFrame()
+        return empty_df, empty_node_map
 
     raw_content = None
     data_source_name = "Unknown" # For logging/error messages
@@ -46,7 +51,7 @@ def load_json_data(source_input):
                 else:
                     # TODO: Log this unexpected type
                     print(f"Warning: Unexpected content type from stream-like object: {type(raw_content_bytes)}")
-                    return pd.DataFrame()
+                    return empty_df, empty_node_map
             else:
                  raw_content = raw_content_bytes.decode("utf-8")
 
@@ -56,22 +61,22 @@ def load_json_data(source_input):
             if not file_path.exists():
                 # TODO: Log file not found
                 print(f"Error: File not found at path: {file_path}")
-                return pd.DataFrame()
+                return empty_df, empty_node_map
             if not file_path.is_file():
                  # TODO: Log path is not a file
                 print(f"Error: Path is not a file: {file_path}")
-                return pd.DataFrame()
+                return empty_df, empty_node_map
             raw_content_bytes = file_path.read_bytes()
             raw_content = raw_content_bytes.decode("utf-8")
         else:
             # TODO: Log unsupported input type
             print(f"Error: Unsupported input type for load_json_data: {type(source_input)}")
-            return pd.DataFrame()
+            return empty_df, empty_node_map
 
         if not raw_content:
             # TODO: Log empty content
             print(f"Warning: Empty content from data source: {data_source_name}")
-            return pd.DataFrame()
+            return empty_df, empty_node_map
             
         data = json.loads(raw_content)
 
@@ -79,17 +84,35 @@ def load_json_data(source_input):
         if not isinstance(data, dict):
             # TODO: Log that JSON data is not a dictionary (object)
             print(f"Warning: JSON data from {data_source_name} is not an object as expected.")
-            return pd.DataFrame()
+            return empty_df, empty_node_map
 
         # Check for 'nodes' and 'edges' keys, and ensure they are lists
         if not isinstance(data.get('nodes'), list) or not isinstance(data.get('edges'), list):
             print(f"Warning: JSON data from {data_source_name} does not contain 'nodes' and 'edges' as lists.")
-            return pd.DataFrame()
+            return empty_df, empty_node_map
 
         nodes_data = data['nodes']
         edges_data = data['edges']
 
-        node_labels = {node['id']: node['label'] for node in nodes_data if 'id' in node and 'label' in node}
+        node_info_map = {}
+        for node in nodes_data:
+            node_id = node.get('id')
+            if not node_id:
+                # TODO: Log or print warning about skipping node due to missing id
+                print(f"Warning: Skipping node due to missing 'id': {node}")
+                continue
+
+            source_file = node.get('source_file')
+            node_attributes = node.get('attributes', []) # Default to empty list
+
+            node_type = node_id # Fallback type
+            if source_file and isinstance(source_file, str) and '.' in source_file:
+                node_type = source_file.split('.')[0]
+            elif source_file: # source_file exists but no dot, use it as is or a part of it
+                node_type = source_file
+            # else: node_type remains node_id as fallback
+
+            node_info_map[node_id] = {'type': node_type, 'attributes': node_attributes}
 
         processed_edges = []
         for edge in edges_data:
@@ -102,55 +125,70 @@ def load_json_data(source_input):
                 print(f"Warning: Skipping edge due to missing 'from', 'to', or 'label': {edge}")
                 continue
 
-            head_label = node_labels.get(head_id)
-            tail_label = node_labels.get(tail_id)
+            head_node_info = node_info_map.get(head_id)
+            tail_node_info = node_info_map.get(tail_id)
 
-            if not head_label or not tail_label:
-                # TODO: Log or print warning about skipping edge due to missing node label
-                print(f"Warning: Skipping edge due to missing label for head_id '{head_id}' or tail_id '{tail_id}'.")
+            if not head_node_info:
+                print(f"Warning: Skipping edge due to missing info for head_id '{head_id}': {edge}")
+                continue
+            if not tail_node_info:
+                print(f"Warning: Skipping edge due to missing info for tail_id '{tail_id}': {edge}")
                 continue
 
-            # Derive type from label (e.g., "agency.txt" -> "agency")
-            head_type = head_label.split('.')[0] if '.' in head_label else head_label
-            tail_type = tail_label.split('.')[0] if '.' in tail_label else tail_label
+            head_type = head_node_info['type']
+            tail_type = tail_node_info['type']
 
             processed_edges.append({
-                "head": head_id, # Storing original ID as 'head'
+                "head": head_id,
                 "head_type": head_type,
                 "relation": relation,
-                "tail": tail_id, # Storing original ID as 'tail'
+                "tail": tail_id,
                 "tail_type": tail_type
             })
 
-        if not processed_edges:
-            print(f"Warning: No valid edges could be processed from {data_source_name}.")
-            return pd.DataFrame()
+        if not processed_edges and edges_data: # Only warn if there were edges to process
+            print(f"Warning: No valid edges could be processed from {data_source_name}, though edges were present in the input.")
+        elif not processed_edges and not edges_data:
+            print(f"Info: No edges found in the input from {data_source_name}.")
+            # If no edges, df will be empty. This is valid if input has no edges.
+            return empty_df, node_info_map
 
-        df = pd.DataFrame(processed_edges)
+
+        edges_df = pd.DataFrame(processed_edges)
+
+        # Handle cases where processed_edges might be empty, leading to an empty DataFrame
+        # Ensure DataFrame has the expected columns even if empty
+        if edges_df.empty:
+            # node_info_map might still contain data if there are nodes but no edges
+            return empty_df, node_info_map
+
+        # The following validation of column names is still relevant.
+        # This was identified as an unreachable block and removed.
+        # df = pd.DataFrame(processed_edges) # This line is redundant, using edges_df
 
         # The following validation of column names is still relevant.
         # However, the creation logic above ensures these columns exist if processed_edges is not empty.
         # This check is more of a safeguard if the logic were to change.
         expected_columns = ["head", "head_type", "relation", "tail", "tail_type"]
-        if not all(col in df.columns for col in expected_columns):
+        if not all(col in edges_df.columns for col in expected_columns):
             # This case should ideally not be reached if processed_edges has data.
             print(f"Warning: DataFrame constructed from {data_source_name} is missing one or more expected columns: {expected_columns}.")
             # If this happens, it implies an issue with the edge processing logic.
-            return pd.DataFrame() # Return empty if structure is not as expected.
+            return empty_df, node_info_map # Return empty if structure is not as expected.
 
-        return df
+        return edges_df, node_info_map
 
     except json.JSONDecodeError as e:
         # TODO: Log JSON parsing error
         print(f"Error parsing JSON from {data_source_name}: {e}")
-        return pd.DataFrame()
+        return empty_df, empty_node_map
     except FileNotFoundError: # Should be caught by Path.exists() but as a safeguard
         print(f"Error: File not found (safeguard) for path: {data_source_name}")
-        return pd.DataFrame()
+        return empty_df, empty_node_map
     except Exception as e:
         # TODO: Log other potential errors
         print(f"An unexpected error occurred while loading/processing data from {data_source_name}: {e}")
-        return pd.DataFrame()
+        return empty_df, empty_node_map
 
 
 def validate_data(df: pd.DataFrame) -> bool:
@@ -245,7 +283,9 @@ def normalize_entities(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     normalized_df = df.copy()
-    columns_to_normalize = ["head", "head_type", "tail", "tail_type"]
+    # Node identifiers in 'head' and 'tail' must retain their original casing.
+    # Only normalize type-related columns.
+    columns_to_normalize = ["head_type", "tail_type", "relation"] # Also normalize relation for consistency
 
     for col in columns_to_normalize:
         if col in normalized_df.columns:
