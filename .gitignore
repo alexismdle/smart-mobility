@@ -1,8 +1,14 @@
-lib/
-config/
+# Python virtual environment
 .venv/
-.mypy_cache/
+
+# Python cache files and directories
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# mypy cache
+.mypy_cache/
+
+# Python version file 
 .python-version
