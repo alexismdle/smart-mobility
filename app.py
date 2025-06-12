@@ -21,7 +21,12 @@ from utils.data_processor import (
     normalize_entities,
     validate_data,
 )
-from utils.graph_builder import build_pyvis_graph, create_networkx_graph
+from utils.graph_builder import (
+    assign_node_communities, # Import the new community assignment function
+    build_pyvis_graph,
+    create_networkx_graph,
+    limit_graph_nodes_by_degree
+)
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(layout="wide", page_title="Knowledge Graph Visualizer")
@@ -114,12 +119,46 @@ def main():
                 return
 
             st.sidebar.success(
-                f"NetworkX graph created: {nx_graph.number_of_nodes()} nodes, "
+                f"Full NetworkX graph created: {nx_graph.number_of_nodes()} nodes, "
                 f"{nx_graph.number_of_edges()} edges."
             )
 
-            # --- UI for Node Sizing ---
-            st.sidebar.subheader("Graph Styling")
+            # --- UI for Node Sizing and Limiting ---
+            st.sidebar.subheader("Graph Display Options")
+
+            max_nodes_to_display = st.sidebar.number_input(
+                "Max Nodes to Display (0 for all, by degree):",
+                min_value=0,
+                value=0,  # Default to 0 (show all nodes)
+                step=10,
+                help="Limits the number of nodes in the visualization based on degree. 0 means no limit."
+            )
+
+            # Apply node limiting
+            limited_nx_graph = limit_graph_nodes_by_degree(nx_graph, max_nodes_to_display)
+
+            # Assign communities to the (potentially limited) graph
+            # This function modifies the graph in place or returns it if no changes.
+            # For clarity, reassign, though nx_graph passed to community assignment
+            # should be limited_nx_graph.
+            graph_for_viz = assign_node_communities(limited_nx_graph)
+            # Ensure any messages about graph size use graph_for_viz
+            # (though assign_node_communities doesn't change node/edge count)
+
+            if max_nodes_to_display > 0 and max_nodes_to_display < nx_graph.number_of_nodes():
+                st.sidebar.info(
+                    f"Displaying: {graph_for_viz.number_of_nodes()} nodes, "
+                    f"{graph_for_viz.number_of_edges()} edges (limited by degree)."
+                )
+            elif graph_for_viz.number_of_nodes() == 0 : # If graph_for_viz is empty
+                 st.sidebar.info("Graph is empty or all nodes were filtered out. Nothing to display.")
+            else: # No limiting applied or limit >= num_nodes
+                 st.sidebar.info(
+                    f"Displaying: {graph_for_viz.number_of_nodes()} nodes, "
+                    f"{graph_for_viz.number_of_edges()} edges."
+                )
+
+
             sizing_options = ["default", "connection_count"]
             # Future: Add other metrics like centrality once calculated e.g. "degree_centrality"
 
@@ -131,83 +170,192 @@ def main():
                       "'connection_count' sizes nodes by their number of connections.")
             )
 
+            use_community_coloring = st.sidebar.checkbox(
+                "Color Nodes by Community",
+                value=False,
+                help="Overrides type-based coloring with community-based colors if communities are detected."
+            )
+
+            # Edge width selection
+            edge_width_options = ["Normal", "Thin"]
+            selected_edge_width_style = st.sidebar.selectbox(
+                "Edge Width:",
+                options=edge_width_options,
+                index=0, # Default to "Normal"
+                help="Adjust the visual thickness of edges."
+            )
+
             # 6. Build PyVis Graph
             # Create a copy of APP_SETTINGS to modify for the current build
-            current_build_settings = APP_SETTINGS.copy()
+            # current_build_settings = APP_SETTINGS.copy() # This should be a deepcopy for nested dicts
+            current_build_settings = copy.deepcopy(APP_SETTINGS)
+
+
             if selected_size_metric != "default":
                 current_build_settings['node_size_metric'] = selected_size_metric
             else:
                 # Ensure it's not set if "default" is chosen, so style_nodes uses its default_node_size
                 current_build_settings.pop('node_size_metric', None)
 
+            current_build_settings['color_by_community'] = use_community_coloring
+            # 'default_community_colors' is already in APP_SETTINGS and thus in current_build_settings
+
+            # Update edge width in current_build_settings based on selection
+            if selected_edge_width_style == "Normal":
+                current_build_settings['edge_width'] = current_build_settings.get('default_edge_weight', 1)
+            elif selected_edge_width_style == "Thin":
+                current_build_settings['edge_width'] = current_build_settings.get('light_edge_weight', 0.5)
+            # Other edge settings like smooth_type, highlight/hover colors are already in current_build_settings
+            # from the deepcopy of APP_SETTINGS.
+
             # --- UI for Physics Controls ---
-            st.sidebar.subheader("Physics Controls (BarnesHut)")
-
-            # Use a deep copy of the dictionary part of physics settings from APP_SETTINGS
-            # to prevent modification of the global APP_SETTINGS on widget changes.
-            # Fallback to an empty dict if 'pyvis_physics_options_dict' is not in APP_SETTINGS
-            default_physics_dict = APP_SETTINGS.get('pyvis_physics_options_dict', {})
-            if not isinstance(default_physics_dict, dict):  # Ensure it's a dict
-                default_physics_dict = {}
-
-            # Make sure barnesHut key exists in default_physics_dict
-            if 'barnesHut' not in default_physics_dict:
-                default_physics_dict['barnesHut'] = {}
-
-            grav_const_default = default_physics_dict.get('barnesHut', {}).get('gravitationalConstant', -8000)
-            central_gravity_default = default_physics_dict.get('barnesHut', {}).get('centralGravity', 0.3)
-            spring_length_default = default_physics_dict.get('barnesHut', {}).get('springLength', 250)
-            spring_const_default = default_physics_dict.get('barnesHut', {}).get('springConstant', 0.04)
-            damping_default = default_physics_dict.get('barnesHut', {}).get('damping', 0.09)
-            avoid_overlap_default = default_physics_dict.get('barnesHut', {}).get('avoidOverlap', 0.1)
-
-            gravitational_constant = st.sidebar.slider(
-                "Gravitational Constant", min_value=-30000, max_value=0,
-                value=grav_const_default, step=100
-            )
-            central_gravity = st.sidebar.slider(
-                "Central Gravity", min_value=0.0, max_value=1.0,
-                value=central_gravity_default, step=0.05
-            )
-            spring_length = st.sidebar.slider(
-                "Spring Length", min_value=50, max_value=500,
-                value=spring_length_default, step=10
-            )
-            spring_constant = st.sidebar.slider(
-                "Spring Constant", min_value=0.0, max_value=0.5,
-                value=spring_const_default, step=0.01
-            )
-            damping = st.sidebar.slider(
-                "Damping", min_value=0.0, max_value=0.5,
-                value=damping_default, step=0.01
-            )
-            avoid_overlap = st.sidebar.slider(
-                "Avoid Overlap", min_value=0.0, max_value=1.0,
-                value=avoid_overlap_default, step=0.05
+            st.sidebar.subheader("Physics Solver")
+            solver_options = ['barnesHut', 'forceAtlas2Based']
+            selected_solver = st.sidebar.selectbox(
+                "Choose Solver:",
+                options=solver_options,
+                index=0, # Default to barnesHut
+                help="Select the physics solver for graph layout."
             )
 
-            # Update physics settings in current_build_settings
-            current_physics_options = copy.deepcopy(default_physics_dict)  # Start from a clean copy of defaults
+            # Make a deep copy of the relevant physics options from APP_SETTINGS to current_build_settings
+            # This ensures that APP_SETTINGS remains unchanged, and current_build_settings
+            # holds the potentially modified settings for this specific build.
+            if 'pyvis_barnesHut_options' not in current_build_settings:
+                current_build_settings['pyvis_barnesHut_options'] = copy.deepcopy(APP_SETTINGS.get('pyvis_barnesHut_options', {}))
+            if 'pyvis_forceatlas2based_options' not in current_build_settings:
+                current_build_settings['pyvis_forceatlas2based_options'] = copy.deepcopy(APP_SETTINGS.get('pyvis_forceatlas2based_options', {}))
 
-            if 'barnesHut' not in current_physics_options:  # Should be there from above check
-                current_physics_options['barnesHut'] = {}
+            active_solver_options = {}
 
-            current_physics_options['barnesHut']['gravitationalConstant'] = gravitational_constant
-            current_physics_options['barnesHut']['centralGravity'] = central_gravity
-            current_physics_options['barnesHut']['springLength'] = spring_length
-            current_physics_options['barnesHut']['springConstant'] = spring_constant
-            current_physics_options['barnesHut']['damping'] = damping
-            current_physics_options['barnesHut']['avoidOverlap'] = avoid_overlap
+            if selected_solver == 'barnesHut':
+                st.sidebar.subheader("BarnesHut Options")
+                default_bh_opts = APP_SETTINGS.get('pyvis_barnesHut_options', {}).get('barnesHut', {})
+                current_bh_opts = copy.deepcopy(current_build_settings['pyvis_barnesHut_options'].get('barnesHut', {}))
 
-            # Ensure 'enabled' and 'solver' are correctly set for these controls
-            current_physics_options['enabled'] = True
-            current_physics_options['solver'] = 'barnesHut'
+                grav_const = st.sidebar.slider(
+                    "Gravitational Constant (BH)", min_value=-30000, max_value=0,
+                    value=current_bh_opts.get('gravitationalConstant', default_bh_opts.get('gravitationalConstant', -8000)),
+                    step=100, key="bh_grav_const"
+                )
+                central_gravity = st.sidebar.slider(
+                    "Central Gravity (BH)", min_value=0.0, max_value=1.0,
+                    value=current_bh_opts.get('centralGravity', default_bh_opts.get('centralGravity', 0.3)),
+                    step=0.05, key="bh_central_gravity"
+                )
+                spring_length = st.sidebar.slider(
+                    "Spring Length (BH)", min_value=50, max_value=500,
+                    value=current_bh_opts.get('springLength', default_bh_opts.get('springLength', 250)),
+                    step=10, key="bh_spring_length"
+                )
+                spring_constant = st.sidebar.slider(
+                    "Spring Constant (BH)", min_value=0.0, max_value=0.5,
+                    value=current_bh_opts.get('springConstant', default_bh_opts.get('springConstant', 0.04)),
+                    step=0.01, key="bh_spring_constant"
+                )
+                damping = st.sidebar.slider(
+                    "Damping (BH)", min_value=0.0, max_value=0.5,
+                    value=current_bh_opts.get('damping', default_bh_opts.get('damping', 0.09)),
+                    step=0.01, key="bh_damping"
+                )
+                avoid_overlap = st.sidebar.slider(
+                    "Avoid Overlap (BH)", min_value=0.0, max_value=1.0,
+                    value=current_bh_opts.get('avoidOverlap', default_bh_opts.get('avoidOverlap', 0.1)),
+                    step=0.05, key="bh_avoid_overlap"
+                )
 
-            # Update both the dictionary and the JSON string representation in current_build_settings
-            current_build_settings['pyvis_physics_options_dict'] = current_physics_options
-            current_build_settings['pyvis_physics_options_json_string'] = json.dumps({"physics": current_physics_options})
+                # Update the barnesHut part of the options in current_build_settings
+                current_build_settings['pyvis_barnesHut_options']['barnesHut'] = {
+                    'gravitationalConstant': grav_const,
+                    'centralGravity': central_gravity,
+                    'springLength': spring_length,
+                    'springConstant': spring_constant,
+                    'damping': damping,
+                    'avoidOverlap': avoid_overlap
+                }
+                # Ensure other parts like 'enabled', 'solver', 'stabilization' are preserved from defaults
+                full_bh_options_template = APP_SETTINGS.get('pyvis_barnesHut_options', {})
+                for key, value in full_bh_options_template.items():
+                    if key not in current_build_settings['pyvis_barnesHut_options']:
+                        current_build_settings['pyvis_barnesHut_options'][key] = copy.deepcopy(value)
+                    elif key == 'barnesHut': # Already updated above
+                        continue
+                    elif isinstance(value, dict): # e.g. stabilization
+                         current_build_settings['pyvis_barnesHut_options'][key] = copy.deepcopy(value)
 
-            pyvis_graph = build_pyvis_graph(nx_graph, settings=current_build_settings)
+
+                current_build_settings['pyvis_barnesHut_options']['enabled'] = True
+                current_build_settings['pyvis_barnesHut_options']['solver'] = 'barnesHut'
+                active_solver_options = current_build_settings['pyvis_barnesHut_options']
+
+            elif selected_solver == 'forceAtlas2Based':
+                st.sidebar.subheader("ForceAtlas2Based Options")
+                default_fa2_opts = APP_SETTINGS.get('pyvis_forceatlas2based_options', {}).get('forceAtlas2Based', {})
+                current_fa2_opts = copy.deepcopy(current_build_settings['pyvis_forceatlas2based_options'].get('forceAtlas2Based', {}))
+
+                gravity = st.sidebar.slider(
+                    "Gravity (FA2)", min_value=-200, max_value=0,
+                    value=current_fa2_opts.get('gravity', default_fa2_opts.get('gravity', -50)),
+                    step=1, key="fa2_gravity"
+                )
+                central_gravity = st.sidebar.slider(
+                    "Central Gravity (FA2)", min_value=0.0, max_value=0.2,
+                    value=current_fa2_opts.get('centralGravity', default_fa2_opts.get('centralGravity', 0.01)),
+                    step=0.001, format="%.3f", key="fa2_central_gravity"
+                )
+                spring_length = st.sidebar.slider(
+                    "Spring Length (FA2)", min_value=10, max_value=500,
+                    value=current_fa2_opts.get('springLength', default_fa2_opts.get('springLength', 100)),
+                    step=10, key="fa2_spring_length"
+                )
+                spring_constant = st.sidebar.slider(
+                    "Spring Constant (FA2)", min_value=0.0, max_value=0.5,
+                    value=current_fa2_opts.get('springConstant', default_fa2_opts.get('springConstant', 0.08)),
+                    step=0.01, key="fa2_spring_constant"
+                )
+                damping = st.sidebar.slider(
+                    "Damping (FA2)", min_value=0.0, max_value=1.0,
+                    value=current_fa2_opts.get('damping', default_fa2_opts.get('damping', 0.4)),
+                    step=0.01, key="fa2_damping"
+                )
+                avoid_overlap = st.sidebar.slider(
+                    "Avoid Overlap (FA2)", min_value=0.0, max_value=1.0,
+                    value=current_fa2_opts.get('avoidOverlap', default_fa2_opts.get('avoidOverlap', 0)), # Default 0 for FA2
+                    step=0.05, key="fa2_avoid_overlap"
+                )
+
+                # Update the forceAtlas2Based part of the options in current_build_settings
+                current_build_settings['pyvis_forceatlas2based_options']['forceAtlas2Based'] = {
+                    'gravity': gravity,
+                    'centralGravity': central_gravity,
+                    'springLength': spring_length,
+                    'springConstant': spring_constant,
+                    'damping': damping,
+                    'avoidOverlap': avoid_overlap
+                }
+                # Ensure other parts like 'enabled', 'solver', 'stabilization' are preserved from defaults
+                full_fa2_options_template = APP_SETTINGS.get('pyvis_forceatlas2based_options', {})
+                for key, value in full_fa2_options_template.items():
+                    if key not in current_build_settings['pyvis_forceatlas2based_options']:
+                        current_build_settings['pyvis_forceatlas2based_options'][key] = copy.deepcopy(value)
+                    elif key == 'forceAtlas2Based': # Already updated
+                        continue
+                    elif isinstance(value, dict): # e.g. stabilization
+                        current_build_settings['pyvis_forceatlas2based_options'][key] = copy.deepcopy(value)
+
+
+                current_build_settings['pyvis_forceatlas2based_options']['enabled'] = True
+                current_build_settings['pyvis_forceatlas2based_options']['solver'] = 'forceAtlas2Based'
+                active_solver_options = current_build_settings['pyvis_forceatlas2based_options']
+
+            # Update the JSON string representation in current_build_settings for the active solver
+            # This key is for general reference or if other parts of the app expect it.
+            # build_pyvis_graph will use the dictionary for the selected solver.
+            current_build_settings['pyvis_options_json_string'] = json.dumps({"physics": active_solver_options})
+
+
+            # Pass the graph (potentially limited and with communities) to the PyVis builder
+            pyvis_graph = build_pyvis_graph(graph_for_viz, settings=current_build_settings, solver_type=selected_solver)
 
             # 7. Render PyVis Graph
             try:

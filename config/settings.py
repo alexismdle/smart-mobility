@@ -38,6 +38,12 @@ DEFAULT_NODE_SIZE_MULTIPLIER = 3 # Multiplier for dynamic node sizing based on m
 
 # --- Edge Styling ---
 DEFAULT_EDGE_COLOR = "#696969"  # Dim Grey, for better visibility than very light grey
+DEFAULT_EDGE_WEIGHT = 1
+LIGHT_EDGE_WEIGHT = 0.5
+DEFAULT_EDGE_SMOOTH_TYPE = "dynamic" # Common choice for good performance and appearance
+EDGE_COLOR_HIGHLIGHT = "#FF0000"  # Bright Red for highlighted edges
+EDGE_COLOR_HOVER = "#E0E0E0"      # Light Grey for hovered edges (distinct from default if default is dark)
+
 
 # --- PyVis Physics Configuration ---
 # These options control the simulation of the graph layout.
@@ -65,6 +71,30 @@ PYVIS_PHYSICS_OPTIONS_DICT = {
     },
     "timestep": 0.5,                    # Default
     "adaptiveTimestep": True            # Default
+}
+
+PYVIS_FORCEATLAS2BASED_OPTIONS_DICT = {
+    "enabled": True,
+    "forceAtlas2Based": {
+        "gravity": -50,
+        "centralGravity": 0.01,
+        "springLength": 100,
+        "springConstant": 0.08,
+        "damping": 0.4,
+        "avoidOverlap": 0.5 # Changed from 0 to 0.5 for better default node separation
+    },
+    "maxVelocity": 50, # Default, can be tuned
+    "minVelocity": 0.1, # Default, can be tuned
+    "solver": "forceAtlas2Based",
+    "stabilization": {
+        "enabled": True,
+        "iterations": 500, # Similar to barnesHut for consistency
+        "updateInterval": 50,
+        "onlyDynamicEdges": False,
+        "fit": True
+    },
+    "timestep": 0.5,
+    "adaptiveTimestep": True
 }
 
 # It's often easier to pass the physics options as a JSON string to pyvis.set_options
@@ -96,8 +126,37 @@ PYVIS_PHYSICS_OPTIONS_JSON_STRING = """
   }
 }
 """
-# For the application, we will primarily use the dictionary `PYVIS_PHYSICS_OPTIONS_DICT`
-# and let build_pyvis_graph handle it. The JSON string is for reference or alternative use.
+
+PYVIS_FORCEATLAS2BASED_OPTIONS_JSON_STRING = """
+{
+  "physics": {
+    "enabled": True,
+    "forceAtlas2Based": {
+      "gravity": -50,
+      "centralGravity": 0.01,
+      "springLength": 100,
+      "springConstant": 0.08,
+      "damping": 0.4,
+      "avoidOverlap": 0.5
+    },
+    "maxVelocity": 50,
+    "minVelocity": 0.1,
+    "solver": "forceAtlas2Based",
+    "stabilization": {
+      "enabled": True,
+      "iterations": 500,
+      "updateInterval": 50,
+      "onlyDynamicEdges": False,
+      "fit": True
+    },
+    "timestep": 0.5,
+    "adaptiveTimestep": True
+  }
+}
+"""
+# For the application, we will primarily use the dictionaries `PYVIS_PHYSICS_OPTIONS_DICT`
+# and `PYVIS_FORCEATLAS2BASED_OPTIONS_DICT` and let build_pyvis_graph handle them.
+# The JSON strings are for reference or alternative use.
 
 
 # --- Graph Analytics ---
@@ -107,6 +166,29 @@ CENTRALITY_METRICS_TO_CALCULATE = [
     "closeness",        # Closeness centrality (Consider computational cost on large graphs)
     "eigenvector"       # Eigenvector centrality (Can be computationally intensive)
     # "pagerank"        # PageRank (Often useful)
+]
+
+DEFAULT_COMMUNITY_COLORS = [
+    "#FF6347",  # Tomato
+    "#4682B4",  # SteelBlue
+    "#32CD32",  # LimeGreen
+    "#FFD700",  # Gold
+    "#6A5ACD",  # SlateBlue
+    "#FF4500",  # OrangeRed
+    "#20B2AA",  # LightSeaGreen
+    "#9370DB",  # MediumPurple
+    "#00CED1",  # DarkTurquoise
+    "#FA8072",  # Salmon
+    "#7B68EE",  # MediumSlateBlue
+    "#ADFF2F",  # GreenYellow
+    "#DA70D6",  # Orchid
+    "#FF7F50",  # Coral
+    "#1E90FF",  # DodgerBlue
+    "#8FBC8F",  # DarkSeaGreen
+    "#DB7093",  # PaleVioletRed
+    "#F0E68C",  # Khaki
+    "#dda0dd",  # Plum (already in use for concept, but ok for list)
+    "#c71585"   # MediumVioletRed
 ]
 
 # --- Other Settings ---
@@ -122,6 +204,14 @@ APP_SETTINGS = {
     'default_edge_color': DEFAULT_EDGE_COLOR,
     'default_node_size': DEFAULT_NODE_SIZE,
     'node_size_multiplier': DEFAULT_NODE_SIZE_MULTIPLIER,
-    'physics_options': PYVIS_PHYSICS_OPTIONS_JSON_STRING, # PyVis set_options takes a string
-    'centrality_metrics': CENTRALITY_METRICS_TO_CALCULATE
+    # 'physics_options': PYVIS_PHYSICS_OPTIONS_JSON_STRING, # This will be dynamically set in app.py
+    'pyvis_barnesHut_options': PYVIS_PHYSICS_OPTIONS_DICT,
+    'pyvis_forceatlas2based_options': PYVIS_FORCEATLAS2BASED_OPTIONS_DICT,
+    'centrality_metrics': CENTRALITY_METRICS_TO_CALCULATE,
+    'default_community_colors': DEFAULT_COMMUNITY_COLORS,
+    'default_edge_weight': DEFAULT_EDGE_WEIGHT,
+    'light_edge_weight': LIGHT_EDGE_WEIGHT,
+    'default_edge_smooth_type': DEFAULT_EDGE_SMOOTH_TYPE,
+    'edge_color_highlight': EDGE_COLOR_HIGHLIGHT,
+    'edge_color_hover': EDGE_COLOR_HOVER
 }
