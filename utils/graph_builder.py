@@ -2,9 +2,8 @@ from typing import Optional
 
 import networkx as nx
 import pandas as pd
-from pyvis.network import Network
-
-from utils.visualizer import style_nodes
+# from pyvis.network import Network # Removed
+# from utils.visualizer import style_nodes # Removed
 
 
 def create_networkx_graph(edges_df: pd.DataFrame, node_info: Optional[dict] = None):
@@ -30,13 +29,4 @@ def create_networkx_graph(edges_df: pd.DataFrame, node_info: Optional[dict] = No
 
     return graph
 
-def build_pyvis_graph(nx_graph: nx.MultiDiGraph):
-    net = Network(height="600px", width="100%", directed=True)
-    if nx_graph and nx_graph.number_of_nodes() > 0:
-        for u, v, data in nx_graph.edges(data=True):
-            label = data.get('relation', '')
-            net.add_edge(u, v, label=label)
-        for node in nx_graph.nodes(data=True):
-            net.add_node(node[0], label=str(node[0]))
-        style_nodes(net, nx_graph) 
-    return net
+# Removed build_pyvis_graph function as Pyvis is no longer used.
