@@ -12,3 +12,6 @@
 
 # Python version file 
 .python-version
+
+# vis-lib
+.lib/

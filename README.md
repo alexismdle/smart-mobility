@@ -36,7 +36,7 @@ A brief description of what this project does.
 To run the application, execute the main script:
 
 ```bash
-python app.py
+streamlit run app.py 
 ```
 *(Please verify this is the correct command and update if necessary.)*
 
