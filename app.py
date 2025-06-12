@@ -1,36 +1,39 @@
-import tempfile
 from pathlib import Path
-
-import streamlit as st
-from pyvis.network import Network
+# import matplotlib.pyplot as plt # No longer directly used here
+# import networkx as nx # No longer directly used here for drawing
 
 from utils.data_processor import load_json_data, validate_data
 from utils.graph_builder import create_networkx_graph
-
-st.set_page_config(layout="wide", page_title="Knowledge Graph MVP")
-st.title("Knowledge Graph Viewer (MVP)")
+from utils.matplotlib_visualizer import draw_graph_matplotlib
 
 def main():
     sample_data_path = Path("assets/sample_data.json")
+    output_image_path = Path("knowledge_graph.png") # Output path for the graph image
+
     if not sample_data_path.exists():
-        st.error(f"Sample data not found at {sample_data_path}")
+        print(f"Error: Sample data not found at {sample_data_path}")
         return
 
     edges_df, node_info_map = load_json_data(sample_data_path)
 
     if not validate_data(edges_df) or not node_info_map:
-        st.error("Invalid data format. Ensure JSON has valid nodes and edges.")
+        print("Error: Invalid data format. Ensure JSON has valid nodes and edges.")
         return
 
     nx_graph = create_networkx_graph(edges_df, node_info_map)
 
-    net = Network(height="750px", width="100%", directed=True)
-    net.from_nx(nx_graph)
+    # The check for nx_graph is now inside draw_graph_matplotlib
+    # No need to explicitly check here if nx_graph is None or empty,
+    # as the visualizer function handles it.
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8") as tmp_file:
-        net.save_graph(tmp_file.name)
-        html_content = Path(tmp_file.name).read_text()
-    st.components.v1.html(html_content, height=750, scrolling=True)
+    # Use the new visualizer function
+    draw_graph_matplotlib(
+        nx_graph,
+        output_path=str(output_image_path), # Ensure output_path is a string
+        layout_type="spring", # Example: specify layout
+        title="Knowledge Graph from App"
+    )
+    # The print statement for success is now inside draw_graph_matplotlib
 
 if __name__ == "__main__":
     main()

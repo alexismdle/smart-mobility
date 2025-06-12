@@ -33,12 +33,27 @@ A brief description of what this project does.
 
 ## Running the Application
 
-To run the application, execute the main script:
+This project uses Matplotlib to generate a visual representation of the knowledge graph.
+
+To run the application, execute the main script from the root directory of the project:
 
 ```bash
-streamlit run app.py 
+python app.py
 ```
-*(Please verify this is the correct command and update if necessary.)*
+Or, if you typically use `python3`:
+```bash
+python3 app.py
+```
+
+The script will process the data located in `assets/sample_data.json` and generate an image file named `knowledge_graph.png` in the project's root directory. This image contains the visualized graph.
+
+## Dependencies
+
+Project dependencies are listed in `requirement.txt`. They can be installed using pip:
+```bash
+pip install -r requirement.txt
+```
+The primary visualization library used is Matplotlib.
 
 ## Contributing
 
